@@ -1,0 +1,407 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YouBike 即時車位（臺中）</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 25px 16px;
+    font-family: "Microsoft JhengHei", sans-serif;
+    background: #f2f7f3;
+    color: #304b3b;
+}
+
+.container {
+    max-width: 1000px;
+    margin: auto;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+header h1 {
+    color: #26734d;
+    font-size: 30px;
+}
+
+header p {
+    color: #66816e;
+}
+
+.search-box {
+    background: white;
+    padding: 22px;
+    border-radius: 15px;
+    box-shadow: 0 3px 12px #00000010;
+    margin-bottom: 20px;
+}
+
+input, select, button {
+    padding: 11px;
+    border-radius: 8px;
+    border: 1px solid #cbd9ce;
+    font-size: 15px;
+}
+
+input {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+button {
+    background: #34845a;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #246b45;
+}
+
+.summary {
+    margin: 15px 0;
+    color: #52735d;
+    font-weight: bold;
+}
+
+#status {
+    text-align: center;
+    padding: 20px;
+    color: #34845a;
+}
+
+.error {
+    color: #d62828 !important;
+}
+
+.station-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 14px;
+    box-shadow: 0 3px 12px #00000010;
+    border-left: 5px solid #34845a;
+}
+
+.card h2 {
+    font-size: 19px;
+    margin: 0 0 10px;
+    color: #26734d;
+}
+
+.address {
+    font-size: 14px;
+    color: #718276;
+    margin-bottom: 15px;
+}
+
+.numbers {
+    display: flex;
+    gap: 10px;
+}
+
+.number-box {
+    flex: 1;
+    background: #edf6ef;
+    border-radius: 10px;
+    padding: 12px 5px;
+    text-align: center;
+}
+
+.number-box strong {
+    display: block;
+    font-size: 30px;
+    color: #26834e;
+}
+
+.number-box strong.zero {
+    color: #d62828;
+}
+
+.number-box span {
+    font-size: 13px;
+}
+
+.info {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #68796d;
+    line-height: 1.8;
+}
+
+footer {
+    text-align: center;
+    margin-top: 35px;
+    padding: 18px;
+    color: #718276;
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+@media (max-width: 600px) {
+    header h1 {
+        font-size: 23px;
+    }
+
+    .controls select,
+    .controls button {
+        flex: 1;
+    }
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<header>
+    <h1>🚲 YouBike 即時車位（臺中）</h1>
+    <p>查詢臺中市 YouBike 2.0 即時借車與還車資訊</p>
+</header>
+
+<section class="search-box">
+    <input
+        type="text"
+        id="keyword"
+        value="勤益"
+        placeholder="請輸入場站名稱，例如：勤益"
+    >
+
+    <div class="controls">
+        <button id="searchBtn">搜尋場站</button>
+        <button id="refreshBtn">重新整理資料</button>
+
+        <select id="sort">
+            <option value="name">依站名排序</option>
+            <option value="bikes">可借車輛多到少</option>
+        </select>
+
+        <label>
+            <input type="checkbox" id="availableOnly" style="width:auto;">
+            只看有車可借
+        </label>
+    </div>
+</section>
+
+<div class="summary" id="summary">準備載入資料...</div>
+<div id="status">資料載入中，請稍候...</div>
+<div class="station-list" id="stationList"></div>
+
+<footer>
+    資料來源：臺中市政府交通局<br>
+    政府資料開放平臺<br>
+    授權依據：政府資料開放授權條款第 1 版
+</footer>
+
+</div>
+
+<script>
+const API_URL =
+"https://newdatacenter.taichung.gov.tw/api/v1/no-auth/resource.download?rid=bf0fee92-9980-418c-a095-2eacf2eb49f6";
+
+let allStations = [];
+
+const keywordInput = document.getElementById("keyword");
+const sortSelect = document.getElementById("sort");
+const availableOnly = document.getElementById("availableOnly");
+const stationList = document.getElementById("stationList");
+const statusBox = document.getElementById("status");
+const summary = document.getElementById("summary");
+
+// 格式化資料更新時間
+function formatTime(value) {
+    if (!value || String(value).length !== 14) {
+        return "暫無更新時間";
+    }
+
+    const t = String(value);
+
+    return `${t.slice(0,4)}/${t.slice(4,6)}/${t.slice(6,8)}
+    ${t.slice(8,10)}:${t.slice(10,12)}:${t.slice(12,14)}`;
+}
+
+// 取得 API 資料
+async function loadData() {
+    statusBox.className = "";
+    statusBox.textContent = "資料載入中，請稍候...";
+    stationList.innerHTML = "";
+
+    try {
+        const response = await fetch(API_URL);
+
+        if (!response.ok) {
+            throw new Error("HTTP 狀態碼：" + response.status);
+        }
+
+        const data = await response.json();
+
+        if (!Array.isArray(data)) {
+            throw new Error("API 回傳資料格式不是陣列");
+        }
+
+        allStations = data;
+
+        statusBox.textContent = "";
+        renderStations();
+
+    } catch (error) {
+        statusBox.className = "error";
+        statusBox.textContent =
+            "資料載入失敗：" + error.message;
+
+        summary.textContent = "目前無法取得場站資料";
+        console.error("API 錯誤：", error);
+    }
+}
+
+// 顯示場站
+function renderStations() {
+    const keyword = keywordInput.value.trim();
+
+    let result = allStations.filter(station => {
+        const name = String(station.sna || "")
+            .replace(/^YouBike2\.0_/, "");
+
+        return name.includes(keyword);
+    });
+
+    // 只顯示有車可借的場站
+    if (availableOnly.checked) {
+        result = result.filter(station =>
+            Number(station.sbi) > 0
+        );
+    }
+
+    // 排序
+    if (sortSelect.value === "bikes") {
+        result.sort((a, b) =>
+            Number(b.sbi) - Number(a.sbi)
+        );
+    } else {
+        result.sort((a, b) =>
+            String(a.sna).localeCompare(String(b.sna), "zh-Hant")
+        );
+    }
+
+    summary.textContent =
+        `資料總筆數：${allStations.length} 站｜符合條件：${result.length} 站`;
+
+    stationList.innerHTML = "";
+
+    if (result.length === 0) {
+        statusBox.className = "";
+        statusBox.textContent = "找不到符合條件的場站，請重新搜尋。";
+        return;
+    }
+
+    statusBox.textContent = "";
+
+    // 最多顯示 12 站
+    result.slice(0, 12).forEach(station => {
+        const name = String(station.sna || "")
+            .replace(/^YouBike2\.0_/, "");
+
+        const bikes = Number(station.sbi) || 0;
+        const spaces = Number(station.bemp) || 0;
+        const total = Number(station.tot) || 0;
+
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const title = document.createElement("h2");
+        title.textContent = name;
+
+        const address = document.createElement("div");
+        address.className = "address";
+        address.textContent =
+            `${station.sarea || ""}｜${station.ar || "地址未提供"}`;
+
+        const numbers = document.createElement("div");
+        numbers.className = "numbers";
+
+        const bikeBox = document.createElement("div");
+        bikeBox.className = "number-box";
+
+        const bikeNumber = document.createElement("strong");
+        bikeNumber.textContent = bikes;
+        if (bikes === 0) bikeNumber.className = "zero";
+
+        const bikeLabel = document.createElement("span");
+        bikeLabel.textContent = "可借車輛";
+
+        bikeBox.append(bikeNumber, bikeLabel);
+
+        const spaceBox = document.createElement("div");
+        spaceBox.className = "number-box";
+
+        const spaceNumber = document.createElement("strong");
+        spaceNumber.textContent = spaces;
+
+        const spaceLabel = document.createElement("span");
+        spaceLabel.textContent = "可還空位";
+
+        spaceBox.append(spaceNumber, spaceLabel);
+
+        numbers.append(bikeBox, spaceBox);
+
+        const info = document.createElement("div");
+        info.className = "info";
+        info.textContent =
+            `總車位：${total}｜場站編號：${station.sno || "無"}｜更新時間：${formatTime(station.mday)}`;
+
+        card.append(title, address, numbers, info);
+
+        stationList.appendChild(card);
+    });
+
+    if (result.length > 12) {
+        const more = document.createElement("p");
+        more.textContent = `另有 ${result.length - 12} 個符合條件的場站未顯示。`;
+        stationList.appendChild(more);
+    }
+}
+
+// 搜尋按鈕
+document.getElementById("searchBtn").addEventListener("click", renderStations);
+
+// Enter 也可以搜尋
+keywordInput.addEventListener("keydown", event => {
+    if (event.key === "Enter") renderStations();
+});
+
+// 篩選與排序
+availableOnly.addEventListener("change", renderStations);
+sortSelect.addEventListener("change", renderStations);
+
+// 重新取得最新資料
+document.getElementById("refreshBtn").addEventListener("click", loadData);
+
+// 網頁開啟時自動載入
+loadData();
+</script>
+
+</body>
+</html>
